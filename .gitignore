@@ -1,0 +1,11 @@
+.vscode/
+*.o
+*.swp
+*.tmp
+*.xxd
+*.elf
+*.hex
+*.out
+
+target/
+build/
