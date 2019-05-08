@@ -18,10 +18,10 @@
 /* basic driver for HD44780 LCD displays with ATmega328p,
  *
  * RS & E MUST be on the same port, D[4-7] MUST also share a port
- * (however RS/E and D[n] may be on seperate ports)
+ * (however RS/E and D[n] may be on separate ports)
  *
  * LCD_CTRL_PORT and LCD_DATA_PORT may be defined in your makefile to control
- * which ports are used, defaults to PORTB and PORTD respectivly.
+ * which ports are used, defaults to PORTB and PORTD respectively.
  *
  *
  * Example Usage:
@@ -113,7 +113,7 @@ void lcd_init(struct lcd *disp, uint8_t rs, uint8_t e, uint8_t d4, uint8_t d5,
     _delay_us(150);
     lcd_write_4pin(disp, 0x02);
 
-    // Set function and defaults incase MCU was reset without powering off
+    // Set function and defaults in case MCU was reset without powering off
     // display
     disp->function = func | LCD_4BITMODE;
     lcd_cmd(disp, LCD_FUNCTIONSET | disp->function);

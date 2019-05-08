@@ -26,7 +26,7 @@
 #define LCD_DATA_PORT PORTD
 #endif /* LCD_DATA_PORT */
 
-/* Instruction information availible on the HD44780 datasheet
+/* Instruction information available on the HD44780 datasheet
  * Page 24, Table 6
  * Define naming is consistent with Arduino LiquidCrystal to ease conversion
  * from Arduino -> AVR.
@@ -80,11 +80,11 @@ struct lcd {
 
 void lcd_init(struct lcd *disp, uint8_t rs, uint8_t e, uint8_t d4, uint8_t d5,
     uint8_t d6, uint8_t d7, uint8_t func);
-// Lower level commands incase of missing user commands
+// Lower level commands in case of missing user commands
 void lcd_cmd(struct lcd *disp, uint8_t val);
 void lcd_write(struct lcd *disp, uint8_t val);
 
-// User commands for convinience
+// User commands for convenience
 void lcd_print(struct lcd *disp, const uint8_t *data);
 void lcd_clear(struct lcd *disp);
 void lcd_home(struct lcd *disp);
