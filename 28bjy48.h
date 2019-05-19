@@ -34,9 +34,11 @@ struct stepmotor4 {
 //    int8_t s;
 //};
 
+
 /* ------------------------------------------------------------------------- */
 
 void sm4_step(struct stepmotor4 *sm, uint8_t hs, uint8_t f);
+void sm4_disable(struct stepmotor4 *sm);
 void sm4_run(struct stepmotor4 *sm, int16_t cnt, uint16_t d, uint8_t hs);
 
 /*

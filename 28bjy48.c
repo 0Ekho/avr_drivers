@@ -25,8 +25,9 @@
  * Stepper pins in[1-4] MUST share a port, by default this is PORTD
  * PORT_28BJY48 may be defined in your makefile to change this.
  *
- * Recommend power to the stepper motor is cut when not in use. (put it on a
- * relay, etc.)
+ * Recommend disabling the stepper when not in use to reduce power / prevent
+ * motor from overheating depending on what it is being used for.
+ *
  *
  * Example usage:
  *  // set pins                   IN1     IN2     IN3     IN4
@@ -35,6 +36,7 @@
  *  //                   steps to run, ~ms delay between steps
  *  sm4_run_fs(&stepper, STEPS_28BJY48, 10);
  *  // ^ this causes one full revolution forward
+ *  sm4_disable(&stepper);
  *
  */
 
@@ -77,6 +79,11 @@ void sm4_step(struct stepmotor4 *sm, uint8_t hs, uint8_t f)
         }
     }
     sm->s = (sm->s + (hs ? 1 : 2)) % 8;
+}
+
+void sm4_disable(struct stepmotor4 *sm) {
+    PORT_28BJY48 &= ~(_BV(sm->in[0]) | _BV(sm->in[1]) | _BV(sm->in[2]) |\
+        _BV(sm->in[3]));
 }
 
 void sm4_run(struct stepmotor4 *sm, int16_t cnt, uint16_t d, uint8_t hs)
