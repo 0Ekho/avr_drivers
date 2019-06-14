@@ -17,33 +17,43 @@
 
 /* driver for DHT11 temperature & humidity sensor
  *
- * https://akizukidenshi.com/download/ds/aosong/DHT11_20180119.pdf
+ * Datasheet (English):
+ * 'https://akizukidenshi.com/download/ds/aosong/DHT11_20180119.pdf'
  *
- * // TODO: info
+ * - temp is in decidegree Celsius (10th's of degree Celsius)
+ * - humidity is in integer % relative
+ * - by default uses PORTD, PORT_DHT11 may be defined in your makefile to change
+ *   this, note that only the letter is used, the string "PORT" is omitted 
+ *   (Ex: -DPORT_DHT11=B)
+ * - timer0 is used while inside dht_read(), additionally the timer is not
+ *   disabled or restored to its previous state after use
  *
- * give 1 second from powerup
- * do not read within 2 second of last read
- * data is from last read, `read, wait 2s, read` to get data from 2 seconds ago
- * note sensors may take up to 10 seconds to reflect air values (12 seconds ago
- * from read)
- *
- *
-
- * temp is in decidegree Celsius (10th's of degree Celsius)
- * humidity is in integer % relative
+ * Extra notes:
+ * - give 1 second from powerup before reading.
+ * - do not read within 2 second of last successful read, with the exception of
+ *   doing a double read to get mostly realtime data (not 100% sure on this,
+ *   also unsure is this actually applies to only successful reads or if failed
+ *   reads also need a delay)
+ * - data is from last read, so if reads are spaced far apart will have old
+ *   data (read twice to get new data)
+ * - not tested below 1MHz currently, but should work down to 400kHz, possibly
+ *   lower
  *
  *
  * Example usage:
  *  struct dht_resp ht;
- *  while (dht_read(&ht, DDD0) < 0) {
- *      // wait 1 second if read is bad, then try again
- *      _delay_ms(1000);
- *      // optionally may want to exit incase of multiple consecutive failed
- *      // reads to prevent getting stuck indefinitly
- *  }
- *  // do something if temp is over 22C
- *  if (ht.temp > 2200) {
- *      foo();
+ *
+ *  // wait 1s after powerup
+ *  _delay_ms(1000);
+ *
+ *  if (dht_read(&ht, DDD0) > 0) {
+ *      // call foo() if temp is over 22C
+ *      if (ht.temp > 220) {
+ *          foo();
+ *      }
+ *  } else {
+ *      // read failed, handle this however
+ *      return -1;
  *  }
  *
  */
@@ -54,50 +64,76 @@
 
 #include "dht11.h"
 
+/* Page 9, Table 10, */
+#define DHT_T_LOW 27 // upper bound of low pulse
+//#define DHT_T_HIGH 68 // lower bound of high pulse
+#define DHT_TIMEOUT 92 // highest value in timing table
+
+/* use prescaler over 2MHz to fit in 8bit timer */
+#define DHT_PRESCALE_F 2000000UL // 2MHz
+#define DHT_T_SCALE 1000000.0 // timings are in microseconds
+
 /* ------------------------------------------------------------------------- */
 
 int dht_read(struct dht_resp *r, uint8_t pin) {
-    uint8_t t;
     uint8_t s = 0;
     uint8_t v[5];
 
-    /* page 9 table 10
-     * timings are loose enough that it should be safe to ignore the time spent
-     * on non delay cycles assuming high clockrate (>8MHz) */
+    /* Page 9 Table 10 of datasheet for timings */
 
-    // TODO: fix timings to allow for lower clockrates
-    // (use timer + prescaler for t instead of _delay)
+    DHT11_DDR |= _BV(pin); // set to output
 
-    DDR_DHT11 |= _BV(pin); // set to output
-
-    PORT_DHT11 &= ~_BV(pin); // pull down, start signal
+    DHT11_PORT &= ~_BV(pin); // pull down, start signal
     _delay_ms(20); // min 18, max 30
 
-    DDR_DHT11 &= ~_BV(pin); //set to input
-    PORT_DHT11 &= ~_BV(pin); // disable pullups
+    DHT11_DDR &= ~_BV(pin); //set to input
+    DHT11_PORT &= ~_BV(pin); // disable pullups
     _delay_us(35); // make sure bus is released and pulled back down
 
-    // first 2 transistions are not data, next 80 are 5 bytes of data.
+    // no interrupts on timer
+    TIMSK0 &= (~_BV(OCIE0B) & ~_BV(OCIE0B) & ~_BV(TOIE0));
+    // set normal mode
+    TCCR0A &= (~_BV(WGM00) & ~_BV(WGM01));
+#if F_CPU > DHT_PRESCALE_F
+    // enable d8 prescaler
+    TCCR0B &= (~_BV(CS00) & ~_BV(CS02) & ~_BV(WGM02));
+    TCCR0B |= _BV(CS01);
+    // calculate the timer values needed for $time, erroring on the higher side
+#define DHT_TIMEOUT_T (uint8_t)ceil(((DHT_TIMEOUT / DHT_T_SCALE) * F_CPU) / 8.0)
+#define DHT_T_LOW_T (uint8_t)ceil(((DHT_T_LOW / DHT_T_SCALE) * F_CPU) / 8.0)
+//#define DHT_T_HIGH_T (uint8_t)ceil(((DHT_T_HIGH / DHT_T_SCALE) * F_CPU) / 8.0)
+#else
+    // no prescaling
+    TCCR0B &= (~_BV(CS01) & ~_BV(CS02) & ~_BV(WGM02));
+    TCCR0B |= _BV(CS00);
+#define DHT_TIMEOUT_T (uint8_t)ceil((DHT_TIMEOUT / DHT_T_SCALE) * F_CPU)
+#define DHT_T_LOW_T (uint8_t)ceil((DHT_T_LOW / DHT_T_SCALE) * F_CPU)
+//#define DHT_T_HIGH_T (uint8_t)ceil((DHT_T_HIGH / DHT_T_SCALE) * F_CPU)
+#endif /* F_CPU > DHT_PRESCALE_F */
+
+    // first 2 transitions are not data, next 80 are 5 bytes of data.
     for (int8_t i = -2; i < 80; i++) {
-        t = 0;
-        while (s == (PIN_DHT11 & _BV(pin))) {
-            t++;
+        uint8_t t;
+
+        TCNT0 = 0;
+        while (s == (DHT11_PIN & _BV(pin))) {
             // nothing should take over 92μs, if it does something went wrong
-            if (t > 92) {
+            if (TCNT0 > DHT_TIMEOUT_T) {
                 return -1;
             }
-            _delay_us(1);
         }
-        s = PIN_DHT11 & _BV(pin);
-        // if s is high, t is for low portion which is always 54, and can be
+        t = TCNT0;
+
+        s = DHT11_PIN & _BV(pin);
+        // if s is high, t is for low portion which is always 54μs, and can be
         // ignored
         if (s > 0 || i < 0) {
             continue;
         }
-        // every 2nd transistion should be a bit, so /16
+        // every 2nd transition should be a bit, so /16
         v[i / 16] <<= 1;
-        // if t > 27 signal is "1"
-        if (t > 27) {
+        // if t > 27μs signal is "1"
+        if (t > DHT_T_LOW_T) {
             v[i / 16] |= 1;
         }
     }
@@ -105,9 +141,10 @@ int dht_read(struct dht_resp *r, uint8_t pin) {
         return -2;
     }
 
-    // note, fractional part needs to be added *after* negating the integer half
-    // not before,
-    // took almost 200ml of cryogenic rum to figure this out...
+    /* note: fractional part needs to be added *after* negating the integer half
+     * not before, (integer part is always lower than (or equal to) temp, adding
+     * fractional part to bring it up to the correct value)
+     * took almost 200ml of cryogenic rum to figure this out... */
     r->temp = v[2] * 10;
     // bottom of page 6.
     // if the high-order bit in v[3] is set then temp is negative
@@ -116,10 +153,7 @@ int dht_read(struct dht_resp *r, uint8_t pin) {
     }
     r->temp += (v[3] & 0x7F); // ignore sign bit here
 
-    // v[1] is useless? humidity does not have fractional readings
-    r->humi = v[0]; // + v[1]?
+    // v[1] is useless? Humidity does not have fractional readings
+    r->humi = v[0];
     return 1;
 }
-
-/* ------------------------------------------------------------------------- */
-

@@ -18,22 +18,29 @@
 #ifndef DHT11_H
 #define DHT11_H
 
-// TODO: make this a single define, possible?
-#ifndef DDR_DHT11
-#define DDR_DHT11 DDRD
-#endif /* DDR_DHT11 */
 #ifndef PORT_DHT11
-#define PORT_DHT11 PORTD
+#define PORT_DHT11 D
 #endif /* PORT_DHT11 */
-#ifndef PIN_DHT11
-#define PIN_DHT11 PIND
-#endif /* PIN_DHT11 */
+// Is there a better way to do this that still uses defined behavior?
+#if PORT_DHT11 == D
+#define DHT11_DDR DDRD
+#define DHT11_PORT PORTD
+#define DHT11_PIN PIND
+#elif PORT_DHT11 == C
+#define DHT11_DDR DDRC
+#define DHT11_PORT PORTC
+#define DHT11_PIN PINC
+#elif PORT_DHT11 == B
+#define DHT11_DDR DDRB
+#define DHT11_PORT PORTB
+#define DHT11_PIN PINB
+#endif /* PORT_DHT11 == {D,C,B} */
 
 /* temp is in decidegree Celsius, humi is in integer %
  * Ex: temp = 205; // 20.5 degree Celsius 
  *     humi = 54; // 54% relative humidity
- * as sensor only gives integer humidity values, and temperature is limited to
- * 0-50C, with a single decimal
+ * sensor only gives integer humidity values, and temperature is limited to
+ * -20-60C, with a single decimal.
  */
 struct dht_resp {
     int16_t temp;
